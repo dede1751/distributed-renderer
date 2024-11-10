@@ -1,0 +1,6 @@
+blenderproc
+numpy
+opencv-python
+objaverse
+pillow
+trimesh

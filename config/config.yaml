@@ -1,0 +1,15 @@
+base_fov: 0.598132
+fov_range: 0.1
+base_cam_dist: 2.5
+cam_dist_range: 0.0
+resolution: 512
+n_azim: 8
+n_elev: 4
+max_elev: 30.0
+generate_pc: false
+n_sphere_cam: 32
+random_offset: true
+save_depths: true
+save_normals: false
+save_diffuses: false
+prerotation: "X90-Y0-Z0"
