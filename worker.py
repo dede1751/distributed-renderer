@@ -90,11 +90,11 @@ def normalize_objs(objs: List[bproc.types.MeshObject]):
 
 def add_bowl():
     """Add rectangular bowl to the scene."""
-    planes = [bproc.object.create_primitive('PLANE', scale=[2, 2, 1]),
-               bproc.object.create_primitive('PLANE', scale=[2, 2, 1], location=[0, -2, 2], rotation=[-1.570796, 0, 0]),
-               bproc.object.create_primitive('PLANE', scale=[2, 2, 1], location=[0, 2, 2], rotation=[1.570796, 0, 0]),
-               bproc.object.create_primitive('PLANE', scale=[2, 2, 1], location=[2, 0, 2], rotation=[0, -1.570796, 0]),
-               bproc.object.create_primitive('PLANE', scale=[2, 2, 1], location=[-2, 0, 2], rotation=[0, 1.570796, 0])]
+    planes = [bproc.object.create_primitive('PLANE', scale=[3, 3, 1], location=[0, 0, -1.5]),
+               bproc.object.create_primitive('PLANE', scale=[3, 3, 1], location=[0, -1.5, 0], rotation=[-1.570796, 0, 0]),
+               bproc.object.create_primitive('PLANE', scale=[3, 3, 1], location=[0, 1.5, 0], rotation=[1.570796, 0, 0]),
+               bproc.object.create_primitive('PLANE', scale=[3, 3, 1], location=[1.5, 0, 0], rotation=[0, -1.570796, 0]),
+               bproc.object.create_primitive('PLANE', scale=[3, 3, 1], location=[-1.5, 0, 0], rotation=[0, 1.570796, 0])]
     
     for plane in planes:
         plane.enable_rigidbody(False, collision_shape='BOX', mass=1.0, friction = 100.0, linear_damping = 0.99, angular_damping = 0.99)
