@@ -1,0 +1,1 @@
+blenderproc run batch_renderer.py --data_path $TMPDIR/datasets/objaverse --start_idx 1 --num_objects 1 --output_dir ./outputs

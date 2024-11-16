@@ -1,0 +1,26 @@
+{
+    "num_views": 5,
+    "resolution": [600, 600],
+    "focal_range": [30, 70],
+    "diff_focal_range": [0.9, 1.1],
+    "cam_dist_range": [3.0, 3.5],
+    "cam_elev_range": [5, 65],
+    "cam_max_rot": 45,
+    "poi_dist_max": 0.1,
+    "output_normals": false,
+    "output_diffuse": false,
+
+    "base_fov": 0.598132,
+    "fov_range": 0.1,
+    "base_cam_dist": 2.5,
+    "n_azim": 8,
+    "n_elev": 4,
+    "max_elev": 30.0,
+    "generate_pc": false,
+    "n_sphere_cam": 32,
+    "random_offset": true,
+    "save_depths": true,
+    "save_normals": false,
+    "save_diffuses": false,
+    "prerotation": "X90-Y0-Z0"
+}
