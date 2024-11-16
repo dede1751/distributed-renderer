@@ -70,11 +70,11 @@ def load_objects(data_path, objects):
 def add_bowl():
     """Add rectangular bowl to the scene."""
     planes = [
-        bproc.object.create_primitive('PLANE', scale=[4, 4, 0.001], location=[0, 0, -1], rotation=[0, 0, 0]),
-        bproc.object.create_primitive('PLANE', scale=[4, 4, 0.001], location=[0, 4, 0], rotation=[-1.570796, 0, 0]),    
-        bproc.object.create_primitive('PLANE', scale=[4, 4, 0.001], location=[0, -4, 0], rotation=[1.570796, 0, 0]),     
-        bproc.object.create_primitive('PLANE', scale=[4, 4, 0.001], location=[4, 0, 0], rotation=[0, 1.570796, 0]),      
-        bproc.object.create_primitive('PLANE', scale=[4, 4, 1], location=[-4, 0, 0], rotation=[0, -1.570796, 0]),    
+        bproc.object.create_primitive('PLANE', scale=[5, 5, 0.001], location=[0, 0, -1], rotation=[0, 0, 0]),
+        bproc.object.create_primitive('PLANE', scale=[5, 5, 0.001], location=[0, 5, 0], rotation=[-1.570796, 0, 0]),    
+        bproc.object.create_primitive('PLANE', scale=[5, 5, 0.001], location=[0, -5, 0], rotation=[1.570796, 0, 0]),     
+        bproc.object.create_primitive('PLANE', scale=[5, 5, 0.001], location=[5, 0, 0], rotation=[0, 1.570796, 0]),      
+        bproc.object.create_primitive('PLANE', scale=[5, 5, 0.001], location=[-5, 0, 0], rotation=[0, -1.570796, 0]),    
     ]
     for plane in planes:
         plane.enable_rigidbody(False, collision_shape='BOX', mass=1.0, friction = 100.0, linear_damping = 0.99, angular_damping = 0.99)
@@ -82,12 +82,20 @@ def add_bowl():
     return planes
 
 def add_light():
-    light_plane = bproc.object.create_primitive('PLANE', scale=[4, 4, 1], location=[0, 0, 8])
+    light_plane = bproc.object.create_primitive('PLANE', scale=[5, 5, 1], location=[0, 0, 5])
     light_plane.set_name('light_plane')
     light_plane_material = bproc.material.create('light_material')
 
     light_point = bproc.types.Light()
     light_point.set_energy(200)
+
+    # light_point.set_location([0, ])
+
+    # location = bproc.sampler.shell(
+    #     center = [0, 0, 0],
+    #     radius_min = 3.5, radius_max = 3.9,
+    #     elevation_min = 5, elevation_max = 89)
+    # scene.light_point.set_location(location)
 
     return light_plane, light_plane_material, light_point
 
@@ -104,10 +112,21 @@ def set_random_intrinsics(cfg):
     bproc.camera.set_intrinsics_from_blender_params(
         lens=focal_length, pixel_aspect_x=pixel_aspect_x,
         pixel_aspect_y=pixel_aspect_y, lens_unit="MILLIMETERS")
+    
+    print(f"INTRINSICS: focal {focal_length} - diff_focal {diff_focal}")
+    
+    return focal_length
 
-def set_random_extrinsics(cfg):
-    radius_min, radius_max = cfg["cam_dist_range"]
+def set_random_extrinsics(cfg, focal_length):
+    cam_dist_base = cfg["cam_dist_base"]
+    cam_dist_delta = cfg["cam_dist_delta"]
     elevation_min, elevation_max = cfg["cam_elev_range"]
+
+    # Adjust camera distance based on focal range
+    focal_base = cfg["focal_base"]
+    cam_dist_base *= focal_length / focal_base
+    radius_min, radius_max = cam_dist_base - cam_dist_delta, cam_dist_base + cam_dist_delta
+    print(f"EXTRINSICS: cam_base {cam_dist_base}")
 
     locs = []
     for frame_id in range(cfg["num_views"]):
@@ -150,8 +169,8 @@ def render_object(data_path, output_path, objaverse_id, scene, cfg):
     obj.hide(False)
 
     set_random_lighting(scene, cfg)
-    set_random_intrinsics(cfg)
-    set_random_extrinsics(cfg)
+    focal_length = set_random_intrinsics(cfg)
+    set_random_extrinsics(cfg, focal_length)
 
     data = bproc.renderer.render()
     for i in range(cfg["num_views"]):
