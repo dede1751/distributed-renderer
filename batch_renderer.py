@@ -16,13 +16,15 @@ from dataclasses import dataclass
 import logging
 import random
 
-from utils.writer import write_hdf5
+import matplotlib.pyplot as plt
 
 import bpy
 import numpy as np
 import cv2
 import trimesh
+from PIL import Image
 
+from utils.writer import TarWriter
 
 @dataclass
 class BlenderScene:
@@ -63,7 +65,7 @@ def setup_blender(data_path, objects, cfg):
     # Initialize renderer settings
     bproc.renderer.enable_depth_output(activate_antialiasing=False)
     bproc.renderer.set_max_amount_of_samples(cfg.num_samples)
-    bproc.renderer.set_output_format(enable_transparency=True)
+    bproc.renderer.set_output_format(enable_transparency=cfg.remove_background)
     #bproc.renderer.set_cpu_threads(2)
 
     return scene
@@ -96,11 +98,11 @@ def get_hdri_files(hdri_base_path):
 def add_bowl():
     """Add rectangular bowl to the scene."""
     planes = [
-        bproc.object.create_primitive('PLANE', scale=[5, 5, 0.001], location=[0, 0, -0.5], rotation=[0, 0, 0]),
-        bproc.object.create_primitive('PLANE', scale=[5, 5, 0.001], location=[0, 5, 0], rotation=[-1.570796, 0, 0]),    
-        bproc.object.create_primitive('PLANE', scale=[5, 5, 0.001], location=[0, -5, 0], rotation=[1.570796, 0, 0]),     
-        bproc.object.create_primitive('PLANE', scale=[5, 5, 0.001], location=[5, 0, 0], rotation=[0, 1.570796, 0]),      
-        bproc.object.create_primitive('PLANE', scale=[5, 5, 0.001], location=[-5, 0, 0], rotation=[0, -1.570796, 0]),    
+        bproc.object.create_primitive('PLANE', scale=[10, 10, 1], location=[0, 0, -0.25], rotation=[0, 0, 0]),
+        bproc.object.create_primitive('PLANE', scale=[10, 10, 1], location=[0, 10, 0], rotation=[-1.570796, 0, 0]),    
+        bproc.object.create_primitive('PLANE', scale=[10, 10, 1], location=[0, -10, 0], rotation=[1.570796, 0, 0]),     
+        bproc.object.create_primitive('PLANE', scale=[10, 10, 1], location=[10, 0, 0], rotation=[0, 1.570796, 0]),      
+        bproc.object.create_primitive('PLANE', scale=[10, 10, 1], location=[-10, 0, 0], rotation=[0, -1.570796, 0]),    
     ]
     for plane in planes:
         plane.enable_rigidbody(False, collision_shape='BOX', mass=1.0, friction = 100.0, linear_damping = 0.99, angular_damping = 0.99)
@@ -108,18 +110,18 @@ def add_bowl():
     return planes
 
 def add_lights():
-    light_plane = bproc.object.create_primitive('PLANE', scale=[5, 5, 1], location=[0, 0, 10])
+    light_plane = bproc.object.create_primitive('PLANE', scale=[10, 10, 1], location=[0, 0, 10])
     light_plane.set_name('light_plane')
     light_plane_material = bproc.material.create('light_material')
 
     light_points = [bproc.types.Light() for _ in range(4)]
     for point in light_points:
-        point.set_energy(50)
+        point.set_energy(200)
 
-    light_points[0].set_location([0, 5, 4])
-    light_points[0].set_location([0, -5, 4])
-    light_points[0].set_location([5, 0, 4])
-    light_points[0].set_location([-5, 0, 4])
+    light_points[0].set_location([0, 5, 5])
+    light_points[1].set_location([0, -5, 5])
+    light_points[2].set_location([5, 0, 5])
+    light_points[3].set_location([-5, 0, 5])
 
     return light_plane, light_plane_material, light_points
 
@@ -189,7 +191,7 @@ def set_random_lighting(scene, cfg):
 
 def compute_pcd(data, cfg):
     if not cfg.generate_pcd:
-        return None
+        return trimesh.PointCloud(vertices=np.array([]))
 
     pc_all = []
     for i in range(cfg.cam.num_views, cfg.cam.num_views + cfg.pcd.num_views):
@@ -209,7 +211,7 @@ def compute_pcd(data, cfg):
     points = points[np.random.choice(points.shape[0], cfg.pcd.num_points, replace=False)]
     return trimesh.PointCloud(vertices=points[:, :3], colors=points[:, 3:])
 
-def render_object(data_path, output_path, objaverse_id, scene, cfg):
+def render_object(data_path, writer, output_path, objaverse_id, scene, cfg):
     obj = scene.objects[objaverse_id]
     obj.hide(False)
 
@@ -218,25 +220,50 @@ def render_object(data_path, output_path, objaverse_id, scene, cfg):
     set_random_extrinsics(cfg, focal_length)
 
     data = bproc.renderer.render()
-
     logging.info(f"Finished rendering object: {objaverse_id}. Saving data to disk.")
+
+    data["intr"] = bproc.camera.get_intrinsics_as_K_matrix()
+    data["extr"] = [bproc.camera.get_camera_pose(f) for f in range(cfg.cam.num_views)]
+    data["pcd"] = compute_pcd(data, cfg)
+    data["num_views"] = cfg.cam.num_views
+    writer.write(objaverse_id, data)
+    
+    # DEBUG STUFF
     for i in range(cfg.cam.num_views):
         # RGB
         image = data["colors"][i]
-        image_path = os.path.join(output_path, f"{i:04d}.png")
+        image_path = os.path.join(output_path, f"color_{i:04d}.png")
         cv2.imwrite(image_path, cv2.cvtColor(image, cv2.COLOR_RGBA2BGRA))
 
-        # # Depth
-        # depth_path = os.path.join(output_path, f"{i:04d}.npy")
-        # np.save(depth_path, data["depth"][i])
+        # Depth
+        depth = data["depth"][i]
+        depth[depth > 65535] = 0
+        # depth = np.round(depth).astype(np.uint16)
+
+        # depth_path = os.path.join(output_path, f"depth_{i:04d}.png")
+        # img = Image.fromarray(depth)
+        # img.save(depth_path)
+
+        depth_min = depth.min()
+        depth_max = depth.max()
+        depth_normalized = (depth - depth_min) / (depth_max - depth_min)
+
+        # Apply a colormap using Matplotlib
+        colormap='viridis'
+        colormap = plt.get_cmap(colormap)
+        depth_colored = colormap(depth_normalized)  # Returns an RGBA image
+
+        # Convert to 8-bit RGB and save as PNG
+        depth_colored = (depth_colored[:, :, :3] * 255).astype(np.uint8)
+
+        # Save the colored depth image
+        depth_path = os.path.join(output_path, f"depth_{i:04d}.png")
+        plt.imsave(depth_path, depth_colored)
 
         # Save the center-cropped image
         cropped_image = center_crop(image, 224)
         cropped_image_path = os.path.join(output_path, f"{i:04d}_cropped.png")
         cv2.imwrite(cropped_image_path, cv2.cvtColor(cropped_image, cv2.COLOR_RGBA2BGRA))
-        
-    point_cloud = compute_pcd(data, cfg)
-    point_cloud.export(os.path.join(output_path, "pointcloud.ply"))
 
     obj.hide(True)
 
@@ -273,13 +300,14 @@ def main():
     with open(os.path.join(args.data_path, "objaverse_models.json"), "r") as f:
         obj_list = json.load(f)
     
-    # Each renderer writes to its own log file
+    # Each renderer writes to its own log file and output file
     log_dir = os.path.join(args.output_dir, "logs")
     os.makedirs(log_dir, exist_ok=True)
     logging.basicConfig(
-        filename=os.path.join(log_dir, f"{args.start_idx}.log"),
+        filename=os.path.join(log_dir, f"{args.start_idx:06d}.log"),
         level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    
+    writer = TarWriter(args.output_dir, args.config, args.start_idx)
+
     # Initialize all static scene components
     objects = obj_list[args.start_idx : args.start_idx + args.num_objects]
     scene = setup_blender(args.data_path, objects, cfg)
@@ -292,7 +320,7 @@ def main():
         os.makedirs(output_path)
     
         logging.info(f"Rendering Object {obj_id} to {os.path.abspath(output_path)}")
-        render_object(args.data_path, output_path, obj_id, scene, cfg)
+        render_object(args.data_path, writer, output_path, obj_id, scene, cfg)
 
 # blenderproc run batch_renderer.py
 if __name__ == "__main__":

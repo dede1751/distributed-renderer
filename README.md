@@ -1,9 +1,22 @@
 # BlenderProc Objaverse Multiview Renderer
 
-```pip install -r requirements.txt```
+Setup the environment with:
 
-```python distributed.py --num_workers 1 --list_file config/test_list.txt```
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+## Downloading Objaverse Assets
+
+```bash
+python utils/download.py --num_objects 100 --num_workers 8 --list_file obj_list.txt
+```
+
 
 ## Downloading HDRIs
 
-```blenderproc download haven --categories skies low%20contrast pure%20skies --resolution 1k hdri/low_contrast```
+```bash
+blenderproc download haven --categories skies pure%20skies high%20contrast --resolution 1k hdri/high_contrast
+```

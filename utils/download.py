@@ -106,6 +106,7 @@ if __name__ == "__main__":
 
     os.environ["OPENCV_IO_ENABLE_OPENEXR"]="1"
     objaverse_base_path = os.path.join(os.environ["TMPDIR"], "datasets", "objaverse")
+    #objaverse_base_path = "/cluster/work/riner/users/asgobbi/datasets/objaverse"
     objaverse_model_json_path = os.path.join(objaverse_base_path, "objaverse_models.json")
     os.makedirs(objaverse_base_path, exist_ok=True)
 
