@@ -1,15 +1,22 @@
 import blenderproc as bproc
 from blenderproc.python.camera import CameraUtility
 
-import urllib
 import os
+import sys
+sys.path.insert(0, os.path.abspath("./")) # Blenderproc sets PYTHONPATH independently
+
+import urllib
 import json
 import math
 import argparse
 from typing import List, Tuple, Dict
+from types import SimpleNamespace
 import shutil
 from dataclasses import dataclass
 import logging
+import random
+
+from utils.writer import write_hdf5
 
 import bpy
 import numpy as np
@@ -24,29 +31,40 @@ class BlenderScene:
     planes: List[bproc.types.MeshObject]
     light_plane: bproc.types.MeshObject
     light_plane_material: bproc.types.Material
-    light_point: bproc.types.MeshObject
+    light_points: List[bproc.types.MeshObject]
+    hdri_files: List[str]
 
 def setup_blender(data_path, objects, cfg):
-    # Initialize Blender with EEVEE engine
     bproc.init()
-    bpy.context.scene.render.engine = "BLENDER_EEVEE_NEXT"
 
     # Initialize fixed components of the scene and load all objects
     loaded_objects = load_objects(data_path, objects)
-    planes = add_bowl()
-    light_plane, light_plane_material, light_point = add_light()
-    scene = BlenderScene(loaded_objects, planes, light_plane, light_plane_material, light_point)
+
+    if cfg.use_hdri:
+        hdri_files = get_hdri_files(cfg.hdri_path)
+        scene = BlenderScene(
+            loaded_objects, None,
+            None, None, None, hdri_files)
+    else:
+        planes = add_bowl()
+        light_plane, light_plane_material, light_points = add_lights()
+        scene = BlenderScene(
+            loaded_objects, planes, 
+            light_plane, light_plane_material, light_points, None)
+    
+    if cfg.generate_pcd:
+        # Add uniformly distributed cameras on a sphere
+        for i in range(cfg.pcd.num_views):
+            location = bproc.sampler.sphere(center=[0, 0, 0], radius=cfg.pcd.cam_dist, mode='SURFACE')
+            rotation_matrix = bproc.camera.rotation_from_forward_vec(-location)
+            cam2world_matrix = bproc.math.build_transformation_mat(location, rotation_matrix)
+            bproc.camera.add_camera_pose(cam2world_matrix, frame=cfg.cam.num_views + i)
 
     # Initialize renderer settings
-    bproc.renderer.enable_depth_output(activate_antialiasing=False, convert_to_distance=False)
-    if cfg["output_normals"]:
-        bproc.renderer.enable_normals_output()
-    if cfg["output_diffuse"]:
-        bproc.renderer.enable_diffuse_color_output()
-
-    #bproc.renderer.set_output_format(enable_transparency=True)
-    bproc.renderer.set_max_amount_of_samples(50)
-    bproc.renderer.set_cpu_threads(32)
+    bproc.renderer.enable_depth_output(activate_antialiasing=False)
+    bproc.renderer.set_max_amount_of_samples(cfg.num_samples)
+    bproc.renderer.set_output_format(enable_transparency=True)
+    #bproc.renderer.set_cpu_threads(2)
 
     return scene
 
@@ -67,10 +85,18 @@ def load_objects(data_path, objects):
 
     return loaded
 
+def get_hdri_files(hdri_base_path):
+    hdri_files = []
+    for root, dirs, files in os.walk(hdri_base_path):
+        for file in files:
+            if file.endswith('.exr') or file.endswith('.hdr'):
+                hdri_files.append(os.path.join(root, file))
+    return hdri_files
+
 def add_bowl():
     """Add rectangular bowl to the scene."""
     planes = [
-        bproc.object.create_primitive('PLANE', scale=[5, 5, 0.001], location=[0, 0, -1], rotation=[0, 0, 0]),
+        bproc.object.create_primitive('PLANE', scale=[5, 5, 0.001], location=[0, 0, -0.5], rotation=[0, 0, 0]),
         bproc.object.create_primitive('PLANE', scale=[5, 5, 0.001], location=[0, 5, 0], rotation=[-1.570796, 0, 0]),    
         bproc.object.create_primitive('PLANE', scale=[5, 5, 0.001], location=[0, -5, 0], rotation=[1.570796, 0, 0]),     
         bproc.object.create_primitive('PLANE', scale=[5, 5, 0.001], location=[5, 0, 0], rotation=[0, 1.570796, 0]),      
@@ -81,27 +107,25 @@ def add_bowl():
     
     return planes
 
-def add_light():
-    light_plane = bproc.object.create_primitive('PLANE', scale=[5, 5, 1], location=[0, 0, 5])
+def add_lights():
+    light_plane = bproc.object.create_primitive('PLANE', scale=[5, 5, 1], location=[0, 0, 10])
     light_plane.set_name('light_plane')
     light_plane_material = bproc.material.create('light_material')
 
-    light_point = bproc.types.Light()
-    light_point.set_energy(200)
+    light_points = [bproc.types.Light() for _ in range(4)]
+    for point in light_points:
+        point.set_energy(50)
 
-    # light_point.set_location([0, ])
+    light_points[0].set_location([0, 5, 4])
+    light_points[0].set_location([0, -5, 4])
+    light_points[0].set_location([5, 0, 4])
+    light_points[0].set_location([-5, 0, 4])
 
-    # location = bproc.sampler.shell(
-    #     center = [0, 0, 0],
-    #     radius_min = 3.5, radius_max = 3.9,
-    #     elevation_min = 5, elevation_max = 89)
-    # scene.light_point.set_location(location)
-
-    return light_plane, light_plane_material, light_point
+    return light_plane, light_plane_material, light_points
 
 def set_random_intrinsics(cfg):
-    focal_length = np.random.uniform(*cfg["focal_range"])
-    diff_focal = np.random.uniform(*cfg["diff_focal_range"]) # [1-x,1+x]
+    focal_length = np.random.uniform(*cfg.cam.focal_range)
+    diff_focal = np.random.uniform(*cfg.cam.diff_focal_range) # [1-x,1+x]
 
     pixel_aspect_x = pixel_aspect_y = 1
     if diff_focal >= 1:
@@ -112,33 +136,29 @@ def set_random_intrinsics(cfg):
     bproc.camera.set_intrinsics_from_blender_params(
         lens=focal_length, pixel_aspect_x=pixel_aspect_x,
         pixel_aspect_y=pixel_aspect_y, lens_unit="MILLIMETERS")
-    
-    print(f"INTRINSICS: focal {focal_length} - diff_focal {diff_focal}")
-    
+        
     return focal_length
 
 def set_random_extrinsics(cfg, focal_length):
-    cam_dist_base = cfg["cam_dist_base"]
-    cam_dist_delta = cfg["cam_dist_delta"]
-    elevation_min, elevation_max = cfg["cam_elev_range"]
+    cam_dist_base = cfg.cam.dist_base
+    cam_dist_delta = cfg.cam.dist_delta
+    elevation_min, elevation_max = cfg.cam.elev_range
 
     # Adjust camera distance based on focal range
-    focal_base = cfg["focal_base"]
+    focal_base = cfg.cam.focal_base
     cam_dist_base *= focal_length / focal_base
     radius_min, radius_max = cam_dist_base - cam_dist_delta, cam_dist_base + cam_dist_delta
-    print(f"EXTRINSICS: cam_base {cam_dist_base}")
 
     locs = []
-    for frame_id in range(cfg["num_views"]):
+    for frame_id in range(cfg.cam.num_views):
         location = bproc.sampler.shell(
             center=[0, 0, 0],
             radius_min=radius_min, radius_max=radius_max,
             elevation_min=elevation_min, elevation_max=elevation_max)
-        print(f"{frame_id}, {location}, {np.linalg.norm(location)}")
         
         # Randomly sample a lookAt point close to the object center and a plane rotation
-        poi = bproc.sampler.shell(center=[0, 0, 0], radius_min=0, radius_max=cfg["poi_dist_max"])
-        max_plane_rot = cfg["cam_max_rot"] * np.pi / 180
+        poi = bproc.sampler.shell(center=[0, 0, 0], radius_min=0, radius_max=cfg.cam.poi_dist_max)
+        max_plane_rot = cfg.cam.max_rot * np.pi / 180
         inplane_rot = np.random.uniform(-max_plane_rot, max_plane_rot)
     
         # Compute rotation based on vector going from location towards poi
@@ -150,6 +170,13 @@ def set_random_extrinsics(cfg, focal_length):
         locs.append(cam2world)
 
 def set_random_lighting(scene, cfg):
+    # If using HDRI, just set the background
+    if cfg.use_hdri:
+        hdri_path = np.random.choice(scene.hdri_files)
+        logging.info(f"Using HDRI from {hdri_path}")
+        bproc.world.set_world_background_hdr_img(hdri_path)
+        return
+
     # Randomize light plane color and emissivity
     scene.light_plane_material.make_emissive(
         emission_strength=np.random.uniform(3,6), 
@@ -157,12 +184,30 @@ def set_random_lighting(scene, cfg):
     scene.light_plane.replace_materials(scene.light_plane_material)
 
     # Randomize light point color and pose
-    scene.light_point.set_color(np.random.uniform([0.5,0.5,0.5],[1,1,1]))
-    location = bproc.sampler.shell(
-        center = [0, 0, 0],
-        radius_min = 3.5, radius_max = 3.9,
-        elevation_min = 5, elevation_max = 89)
-    scene.light_point.set_location(location)
+    for point in scene.light_points:
+        point.set_color(np.random.uniform([0.5,0.5,0.5],[1,1,1]))
+
+def compute_pcd(data, cfg):
+    if not cfg.generate_pcd:
+        return None
+
+    pc_all = []
+    for i in range(cfg.cam.num_views, cfg.cam.num_views + cfg.pcd.num_views):
+        # Point coordinates
+        pc_xyz = bproc.camera.pointcloud_from_depth(data["depth"][i], frame=i) # [H, W, 3]
+        pc_xyz = pc_xyz[data["depth"][i] < 100] # [N, 3]
+
+        # Point color values
+        pc_rgb = data["colors"][i] # [H, W, 3]
+        pc_rgb = pc_rgb[data["depth"][i] < 100] # [N, 3]
+    
+        pc = np.concatenate([pc_xyz, pc_rgb], axis=-1) # [N, 6]
+        pc_all.append(pc)
+
+    # Concatenate all point clouds and randomly subsample
+    points = np.concatenate(pc_all, axis=0)
+    points = points[np.random.choice(points.shape[0], cfg.pcd.num_points, replace=False)]
+    return trimesh.PointCloud(vertices=points[:, :3], colors=points[:, 3:])
 
 def render_object(data_path, output_path, objaverse_id, scene, cfg):
     obj = scene.objects[objaverse_id]
@@ -173,21 +218,25 @@ def render_object(data_path, output_path, objaverse_id, scene, cfg):
     set_random_extrinsics(cfg, focal_length)
 
     data = bproc.renderer.render()
-    for i in range(cfg["num_views"]):
+
+    logging.info(f"Finished rendering object: {objaverse_id}. Saving data to disk.")
+    for i in range(cfg.cam.num_views):
         # RGB
         image = data["colors"][i]
         image_path = os.path.join(output_path, f"{i:04d}.png")
         cv2.imwrite(image_path, cv2.cvtColor(image, cv2.COLOR_RGBA2BGRA))
 
-        # Depth
-        depth_path = os.path.join(output_path, f"{i:04d}.npy")
-        np.save(depth_path, data["depth"][i])
-
+        # # Depth
+        # depth_path = os.path.join(output_path, f"{i:04d}.npy")
+        # np.save(depth_path, data["depth"][i])
 
         # Save the center-cropped image
         cropped_image = center_crop(image, 224)
         cropped_image_path = os.path.join(output_path, f"{i:04d}_cropped.png")
         cv2.imwrite(cropped_image_path, cv2.cvtColor(cropped_image, cv2.COLOR_RGBA2BGRA))
+        
+    point_cloud = compute_pcd(data, cfg)
+    point_cloud.export(os.path.join(output_path, "pointcloud.ply"))
 
     obj.hide(True)
 
@@ -211,10 +260,15 @@ def main():
     parser.add_argument("--start_idx", type=int, help="Index of the first object to render in 'objaverse_models.json'.")
     parser.add_argument("--num_objects", type=int, help="Number of objects to render.")
     parser.add_argument("--output_dir", type=str, help="Path to save the rendered models.")
+    parser.add_argument("--seed", type=int, default=None, help="Seed for data randomization. Default is random.")
     args = parser.parse_args()
 
+    if args.seed is not None:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+
     with open(args.config, "r") as f:
-        cfg = json.load(f)
+        cfg = json.load(f, object_hook=lambda x: SimpleNamespace(**x))
     
     with open(os.path.join(args.data_path, "objaverse_models.json"), "r") as f:
         obj_list = json.load(f)

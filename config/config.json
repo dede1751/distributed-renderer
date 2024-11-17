@@ -1,28 +1,23 @@
 {
-    "num_views": 3,
+    "num_samples": 3,
     "resolution": [600, 600],
-    "focal_range": [30, 70],
-    "focal_base": 35,
-    "diff_focal_range": [0.9, 1.1],
-    "cam_dist_base": 2.5,
-    "cam_dist_delta": 0.2,
-    "cam_elev_range": [5, 65],
-    "cam_max_rot": 30,
-    "poi_dist_max": 0.1,
-    "output_normals": false,
-    "output_diffuse": false,
-
-    "base_fov": 0.598132,
-    "fov_range": 0.1,
-    "base_cam_dist": 2.5,
-    "n_azim": 8,
-    "n_elev": 4,
-    "max_elev": 30.0,
-    "generate_pc": false,
-    "n_sphere_cam": 32,
-    "random_offset": true,
-    "save_depths": true,
-    "save_normals": false,
-    "save_diffuses": false,
-    "prerotation": "X90-Y0-Z0"
+    "use_hdri": true,
+    "hdri_path": "./hdri/high_contrast",
+    "cam": {
+        "num_views": 25,
+        "focal_range": [30, 70],
+        "diff_focal_range": [0.9, 1.1],
+        "focal_base": 35,
+        "dist_base": 3,
+        "dist_delta": 0.2,
+        "elev_range": [5, 65],
+        "max_rot": 15,
+        "poi_dist_max": 0.1
+    },
+    "generate_pcd": false,
+    "pcd": {
+        "num_views": 32,
+        "cam_dist": 3,
+        "num_points": 10000
+    }
 }
