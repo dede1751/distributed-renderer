@@ -26,23 +26,13 @@ import sys
 sys.path.insert(0, os.path.abspath("./"))
 
 from utils.writer import TarWriter
+from utils.postprocess import process_view
 
 @dataclass
 class BlenderScene:
     """Keep track of all elements in the scene."""
     objects: Dict[str, bproc.types.MeshObject] # objaverse_id -> MeshObject
-    floor: bproc.types.MeshObject
-    walls: List[bproc.types.MeshObject]
-    light_plane: bproc.types.MeshObject
-    light_plane_material: bproc.types.Material
-    light_point: bproc.types.MeshObject
     hdri_files: List[str]
-
-    def hide_bowl(self, value: bool):
-        if self.floor is not None:
-            self.floor.hide(value)
-            for wall in self.walls:
-                wall.hide(value)
 
 def setup_blender(data_path, objects, cfg):
     bproc.init()
@@ -50,17 +40,8 @@ def setup_blender(data_path, objects, cfg):
     # Initialize fixed components of the scene and load all objects
     loaded_objects = load_objects(data_path, objects)
 
-    if cfg.use_hdri:
-        hdri_files = get_hdri_files(cfg.hdri_path)
-        scene = BlenderScene(
-            loaded_objects, None, None,
-            None, None, None, hdri_files)
-    else:
-        floor, walls = add_bowl()
-        light_plane, light_plane_material, light_point = add_lights(cfg)
-        scene = BlenderScene(
-            loaded_objects, floor, walls, 
-            light_plane, light_plane_material, light_point, None)
+    hdri_files = get_hdri_files(cfg.hdri_path)
+    scene = BlenderScene(loaded_objects, hdri_files)
     
     if cfg.generate_pcd:
         # Add uniformly distributed cameras on a sphere
@@ -72,6 +53,7 @@ def setup_blender(data_path, objects, cfg):
 
     # Initialize renderer settings
     bproc.camera.set_resolution(*cfg.resolution)
+    bproc.renderer.set_max_amount_of_samples(cfg.num_samples)
     bproc.renderer.enable_depth_output(activate_antialiasing=False)
     bproc.renderer.set_cpu_threads(2)
 
@@ -90,7 +72,7 @@ def load_objects(data_path, objects):
         
         loaded_obj.set_shading_mode('auto')
         loaded_obj.hide(True)
-        loaded[obj["objaverse_id"]]= loaded_obj
+        loaded[obj["objaverse_id"]] = loaded_obj
 
     return loaded
 
@@ -101,29 +83,6 @@ def get_hdri_files(hdri_base_path):
             if file.endswith('.exr') or file.endswith('.hdr'):
                 hdri_files.append(os.path.join(root, file))
     return hdri_files
-
-def add_bowl():
-    """Add rectangular bowl to the scene."""
-    planes = [
-        bproc.object.create_primitive('PLANE', scale=[10, 10, 1], location=[0, 0, 0], rotation=[0, 0, 0]),
-        bproc.object.create_primitive('PLANE', scale=[10, 10, 1], location=[0, 10, 0], rotation=[-1.570796, 0, 0]),    
-        bproc.object.create_primitive('PLANE', scale=[10, 10, 1], location=[0, -10, 0], rotation=[1.570796, 0, 0]),     
-        bproc.object.create_primitive('PLANE', scale=[10, 10, 1], location=[10, 0, 0], rotation=[0, 1.570796, 0]),      
-        bproc.object.create_primitive('PLANE', scale=[10, 10, 1], location=[-10, 0, 0], rotation=[0, -1.570796, 0]),    
-    ]
-    for plane in planes:
-        plane.enable_rigidbody(False, collision_shape='BOX', mass=1.0, friction = 100.0, linear_damping = 0.99, angular_damping = 0.99)
-    
-    return planes[0], planes[1:]
-
-def add_lights(cfg):
-    light_plane = bproc.object.create_primitive('PLANE', scale=[10, 10, 1], location=[0, 0,cfg.light.plane_height])
-    light_plane_material = bproc.material.create('light_material')
-
-    light_point = bproc.types.Light()
-    light_point.set_energy(200)
-
-    return light_plane, light_plane_material, light_point
 
 def set_random_intrinsics(cfg):
     focal_length = np.random.uniform(*cfg.cam.focal_range)
@@ -171,25 +130,10 @@ def set_random_extrinsics(cfg, focal_length):
         bproc.camera.add_camera_pose(cam2world, frame=frame_id)
         locs.append(cam2world)
 
-def set_random_lighting(scene, cfg):
-    # If using HDRI, just set the background
-    if cfg.use_hdri:
-        hdri_path = np.random.choice(scene.hdri_files)
-        logging.info(f"Using HDRI from {hdri_path}")
-        bproc.world.set_world_background_hdr_img(hdri_path)
-        return
-
-    # Randomize light plane color and emissivity
-    scene.light_plane_material.make_emissive(
-        emission_strength=np.random.uniform(*cfg.light.plane_emit_range), 
-        emission_color=np.random.uniform([0.5, 0.5, 0.5, 1.0], [1.0, 1.0, 1.0, 1.0]))  
-    scene.light_plane.replace_materials(scene.light_plane_material)
-
-    # Randomize light point color and pose
-    location = bproc.sampler.shell([0, 0, 0], *cfg.light.dist_range, *cfg.light.elev_range)
-    scene.light_point.set_location(location)
-    if cfg.light.rand_color:
-        scene.light_point.set_color(np.random.uniform([0.5,0.5,0.5],[1,1,1]))
+def set_random_hdri(scene):
+    hdri_path = np.random.choice(scene.hdri_files)
+    logging.info(f"Using HDRI from {hdri_path}")
+    bproc.world.set_world_background_hdr_img(hdri_path)
 
 def compute_pcd(data, cfg):
     if not cfg.generate_pcd:
@@ -198,106 +142,35 @@ def compute_pcd(data, cfg):
     pc_all = []
     for i in range(cfg.cam.num_views, cfg.cam.num_views + cfg.pcd.num_views):
         # Point coordinates
-        pc_xyz = bproc.camera.pointcloud_from_depth(data["depth"][i], frame=i) # [H, W, 3]
-        pc_xyz = pc_xyz[data["depth"][i] < 100] # [N, 3]
+        pc_xyz = bproc.camera.pointcloud_from_depth(
+            data["depth"][i], frame=i, depth_cut_off=65536) # [H, W, 3]
+        pc_xyz = pc_xyz[data["depth"][i] < 100].reshape([-1, 3]) # [N, 3]
         pc_all.append(pc_xyz)
 
     # Concatenate all point clouds and randomly subsample
     points = np.concatenate(pc_all, axis=0)
+    logging.info(f"Generated PointCloud with {points.shape[0]} points.")
     points = points[np.random.choice(points.shape[0], cfg.pcd.num_points, replace=False)]
     return points
 
-def render_object(data_path, writer, output_path, objaverse_id, scene, cfg):
+def render_object(writer, objaverse_id, scene, cfg):
     obj = scene.objects[objaverse_id]
     obj.hide(False)
-    scene.hide_bowl(False)
 
-    # Set the floor to be just touching the object
-    if not cfg.use_hdri:
-        min_z = np.min(obj.get_bound_box(), axis=0)[2]
-        scene.floor.set_location([0, 0, min_z])
-
-    set_random_lighting(scene, cfg)
+    set_random_hdri(scene)
     focal_length = set_random_intrinsics(cfg)
     set_random_extrinsics(cfg, focal_length)
 
-    ###### COLOR ######
-    if cfg.generate_pcd: # For PCD cams render only depth
-        bpy.context.scene.frame_end = cfg.cam.num_views - 1
-
-    bproc.renderer.set_max_amount_of_samples(cfg.num_samples)
     data = bproc.renderer.render()
-    logging.info(f"Finished rendering colors for object: {objaverse_id}.")
-
-    ####### DEPTH ######
-    if cfg.generate_pcd:
-        bpy.context.scene.frame_end = cfg.cam.num_views + cfg.pcd.num_views - 1
-    
-    scene.hide_bowl(True)
-    bproc.renderer.set_max_amount_of_samples(1)
-    depth_data = bproc.renderer.render()
-    logging.info(f"Finished rendering depth for object: {objaverse_id}.")
+    logging.info(f"Finished rendering object: {objaverse_id}.")
 
     data["intr"] = bproc.camera.get_intrinsics_as_K_matrix()
     data["extr"] = [bproc.camera.get_camera_pose(f) for f in range(cfg.cam.num_views)]
-    data["depth"] = depth_data["depth"][:cfg.cam.num_views]
-    data["pcd"] = compute_pcd(depth_data, cfg)
+    data["pcd"] = compute_pcd(data, cfg)
     data["num_views"] = cfg.cam.num_views
+
     writer.write(objaverse_id, data)
-    
-    # DEBUG STUFF
-    np.save(os.path.join(output_path, "intr.npy"), data["intr"])
-    for i in range(cfg.cam.num_views):
-        # RGB
-        image = data["colors"][i]
-        image_path = os.path.join(output_path, f"color_{i:04d}.png")
-        cv2.imwrite(image_path, cv2.cvtColor(image, cv2.COLOR_RGBA2BGRA))
-
-        # Depth
-        depth = data["depth"][i]
-        depth[depth > 65535] = 0
-        np.save(os.path.join(output_path, f"depth_{i:04d}.npy"), depth)
-        # depth = np.round(depth).astype(np.uint16)
-
-        # depth_path = os.path.join(output_path, f"depth_{i:04d}.png")
-        # img = Image.fromarray(depth)
-        # img.save(depth_path)
-
-        depth_min = depth.min()
-        depth_max = depth.max()
-        depth_normalized = (depth - depth_min) / (depth_max - depth_min)
-
-        # Apply a colormap using Matplotlib
-        colormap='viridis'
-        colormap = plt.get_cmap(colormap)
-        depth_colored = colormap(depth_normalized)  # Returns an RGBA image
-
-        # Convert to 8-bit RGB and save as PNG
-        depth_colored = (depth_colored[:, :, :3] * 255).astype(np.uint8)
-
-        # Save the colored depth image
-        depth_path = os.path.join(output_path, f"depth_{i:04d}.png")
-        plt.imsave(depth_path, depth_colored)
-
-        # Save the center-cropped image
-        cropped_image = center_crop(image, 224)
-        cropped_image_path = os.path.join(output_path, f"{i:04d}_cropped.png")
-        cv2.imwrite(cropped_image_path, cv2.cvtColor(cropped_image, cv2.COLOR_RGBA2BGRA))
-
     obj.hide(True)
-
-def center_crop(image, crop_size):
-    height, width = image.shape[:2]
-    new_size = crop_size
-
-    # Calculate the coordinates for the crop
-    start_x = (width - new_size) // 2
-    start_y = (height - new_size) // 2
-
-    # Perform the cropping
-    cropped_image = image[start_y:start_y + new_size, start_x:start_x + new_size]
-
-    return cropped_image
 
 def main():
     parser = argparse.ArgumentParser(description="Render a batch of Objaverse assets.")
@@ -325,6 +198,8 @@ def main():
     logging.basicConfig(
         filename=os.path.join(log_dir, f"{args.start_idx:06d}.log"),
         level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+    logging.info(f"Started rendering {args.num_objects} objects from index {args.start_idx}.")
     writer = TarWriter(args.output_dir, args.config, args.start_idx)
 
     # Initialize all static scene components
@@ -332,14 +207,9 @@ def main():
     scene = setup_blender(args.data_path, objects, cfg)
     logging.info(f"Finished setting up static scene.")
 
-    for obj in objects:
-        obj_id = obj["objaverse_id"]
-        output_path = os.path.join(args.output_dir, obj_id)
-        shutil.rmtree(output_path, ignore_errors=True)
-        os.makedirs(output_path)
-    
-        logging.info(f"Rendering Object {obj_id} to {os.path.abspath(output_path)}")
-        render_object(args.data_path, writer, output_path, obj_id, scene, cfg)
+    for obj_id, obj in scene.objects.items():
+        logging.info(f"Started rendering Object {obj_id}.")
+        render_object(writer, obj_id, scene, cfg)
 
 # blenderproc run batch_renderer.py
 if __name__ == "__main__":

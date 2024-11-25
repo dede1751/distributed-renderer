@@ -1,6 +1,7 @@
 blenderproc
 numpy
+objaverse
 opencv-python
 pillow
-trimesh
 tqdm
+trimesh

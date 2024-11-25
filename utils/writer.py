@@ -1,8 +1,6 @@
 """
 Save rendering outputs to an uncompressed Tarball.
 """
-from blenderproc.python.utility.MathUtility import MathUtility
-
 import tarfile
 import os
 import shutil
@@ -12,7 +10,8 @@ from typing import Dict, List, Union
 import numpy as np
 import cv2
 import trimesh
-    
+
+from utils.postprocess import process_view
 
 class TarWriter():
     def __init__(self, output_dir: str, config_path: str, idx: int):
@@ -21,7 +20,7 @@ class TarWriter():
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
         os.makedirs(self.tmp_dir, exist_ok=True)
 
-        for cat in ["images", "depth", "extr"]:
+        for cat in ["images", "depth", "extr", "intr"]:
             os.makedirs(os.path.join(self.tmp_dir, cat))
 
         tar_dir = os.path.join(output_dir, "shards")
@@ -31,25 +30,27 @@ class TarWriter():
         with tarfile.open(self.tarfile, mode='w') as tar:
             tar.add(config_path, arcname="config.json")
         logging.info(f"Writing data to {self.tarfile}")
-        
-        #self.blender2opencv = MathUtility.build_coordinate_frame_changing_transformation_matrix(["X", "-Y", "-Z"])
     
     def write(self, objaverse_id: str, data: Dict[str, Union[np.ndarray, List[np.ndarray], trimesh.PointCloud]]):
+        K = data["intr"]
         for i in range(data["num_views"]):
             image = data["colors"][i]
-            image_path = os.path.join(self.tmp_dir, "images", f"{i:04d}.png")
-            cv2.imwrite(image_path, cv2.cvtColor(image, cv2.COLOR_RGBA2BGRA))
-
             depth = data["depth"][i]
-            depth_path = os.path.join(self.tmp_dir, "depth", f"{i:04d}.npy")
-            np.save(depth_path, depth)
-
             extr = data["extr"][i]
-            np.save(os.path.join(self.tmp_dir, "extr", f"{i:04d}.npy"), extr)
+
+            image_path = os.path.join(self.tmp_dir, "images", f"{i:04d}.png")
+            depth_path = os.path.join(self.tmp_dir, "depth", f"{i:04d}.npy")
+            extr_path = os.path.join(self.tmp_dir, "extr", f"{i:04d}.npy")
+            intr_path = os.path.join(self.tmp_dir, "intr", f"{i:04d}.npy")
+
+            new_image, new_depth, new_K = process_view(image, depth, K)
+
+            cv2.imwrite(image_path, cv2.cvtColor(new_image, cv2.COLOR_RGB2BGR))
+            np.save(depth_path, new_depth)
+            np.save(intr_path, new_K)
+            np.save(extr_path, extr)
         
-        #data["pcd"].apply_transform(self.blender2opencv)
-        data["pcd"].export(os.path.join(self.tmp_dir, "pcd.ply"))
-        np.save(os.path.join(self.tmp_dir, "intr.npy"), data["intr"])
+        np.save(os.path.join(self.tmp_dir, "pcd.npy"), data["pcd"])
         
         with tarfile.open(self.tarfile, mode='a') as tar:
             tar.add(self.tmp_dir, arcname=f"{objaverse_id}")
