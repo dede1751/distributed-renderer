@@ -28,11 +28,13 @@ sys.path.insert(0, os.path.abspath("./"))
 from utils.writer import TarWriter
 from utils.postprocess import process_view
 
+
 @dataclass
 class BlenderScene:
     """Keep track of all elements in the scene."""
     objects: Dict[str, bproc.types.MeshObject] # objaverse_id -> MeshObject
     hdri_files: List[str]
+
 
 def setup_blender(data_path, objects, cfg):
     bproc.init()
@@ -55,9 +57,10 @@ def setup_blender(data_path, objects, cfg):
     bproc.camera.set_resolution(*cfg.resolution)
     bproc.renderer.set_max_amount_of_samples(cfg.num_samples)
     bproc.renderer.enable_depth_output(activate_antialiasing=False)
-    bproc.renderer.set_cpu_threads(2)
+    #bproc.renderer.set_cpu_threads(2)
 
     return scene
+
 
 def load_objects(data_path, objects):
     loaded = {}
@@ -76,6 +79,7 @@ def load_objects(data_path, objects):
 
     return loaded
 
+
 def get_hdri_files(hdri_base_path):
     hdri_files = []
     for root, dirs, files in os.walk(hdri_base_path):
@@ -83,6 +87,7 @@ def get_hdri_files(hdri_base_path):
             if file.endswith('.exr') or file.endswith('.hdr'):
                 hdri_files.append(os.path.join(root, file))
     return hdri_files
+
 
 def set_random_intrinsics(cfg):
     focal_length = np.random.uniform(*cfg.cam.focal_range)
@@ -99,6 +104,7 @@ def set_random_intrinsics(cfg):
         pixel_aspect_y=pixel_aspect_y, lens_unit="MILLIMETERS")
         
     return focal_length
+
 
 def set_random_extrinsics(cfg, focal_length):
     cam_dist_base = cfg.cam.dist_base
@@ -130,10 +136,12 @@ def set_random_extrinsics(cfg, focal_length):
         bproc.camera.add_camera_pose(cam2world, frame=frame_id)
         locs.append(cam2world)
 
+
 def set_random_hdri(scene):
     hdri_path = np.random.choice(scene.hdri_files)
     logging.info(f"Using HDRI from {hdri_path}")
     bproc.world.set_world_background_hdr_img(hdri_path)
+
 
 def compute_pcd(data, cfg):
     if not cfg.generate_pcd:
@@ -141,7 +149,6 @@ def compute_pcd(data, cfg):
 
     pc_all = []
     for i in range(cfg.cam.num_views, cfg.cam.num_views + cfg.pcd.num_views):
-        # Point coordinates
         pc_xyz = bproc.camera.pointcloud_from_depth(
             data["depth"][i], frame=i, depth_cut_off=65536) # [H, W, 3]
         pc_xyz = pc_xyz[data["depth"][i] < 100].reshape([-1, 3]) # [N, 3]
@@ -150,10 +157,17 @@ def compute_pcd(data, cfg):
     # Concatenate all point clouds and randomly subsample
     points = np.concatenate(pc_all, axis=0)
     logging.info(f"Generated PointCloud with {points.shape[0]} points.")
-    points = points[np.random.choice(points.shape[0], cfg.pcd.num_points, replace=False)]
+
+    if points.shape[0] < cfg.pcd.num_points:
+        logging.error(f"PointCloud has less than {cfg.pcd.num_points}")
+    else:
+        points = points[np.random.choice(points.shape[0], cfg.pcd.num_points, replace=False)]
+
     return points
 
+
 def render_object(writer, objaverse_id, scene, cfg):
+    logging.info(f"Started rendering Object {objaverse_id}.")
     obj = scene.objects[objaverse_id]
     obj.hide(False)
 
@@ -171,6 +185,7 @@ def render_object(writer, objaverse_id, scene, cfg):
 
     writer.write(objaverse_id, data)
     obj.hide(True)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Render a batch of Objaverse assets.")
@@ -208,8 +223,8 @@ def main():
     logging.info(f"Finished setting up static scene.")
 
     for obj_id, obj in scene.objects.items():
-        logging.info(f"Started rendering Object {obj_id}.")
         render_object(writer, obj_id, scene, cfg)
+
 
 # blenderproc run batch_renderer.py
 if __name__ == "__main__":

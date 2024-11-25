@@ -3,7 +3,7 @@
     "resolution": [600, 600],
     "hdri_path": "./hdri/high_contrast",
     "cam": {
-        "num_views": 1,
+        "num_views": 25,
         "focal_base": 35,
         "focal_range": [30, 70],
         "diff_focal_range": [0.9, 1.1],
@@ -15,7 +15,7 @@
     },
     "generate_pcd": true,
     "pcd": {
-        "num_views": 16,
+        "num_views": 10,
         "cam_dist": 3,
         "num_points": 10000
     }

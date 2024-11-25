@@ -1,1 +1,1 @@
-blenderproc run hdri_renderer.py --data_path $TMPDIR/datasets/objaverse --start_idx 3 --num_objects 10 --output_dir ./outputs --seed 42
+blenderproc run hdri_renderer.py --data_path /cluster/work/riner/users/asgobbi/datasets/objaverse --start_idx 0 --num_objects 1 --output_dir ./outputs --seed 42
