@@ -14,12 +14,14 @@ import json
 from typing import Optional
 import argparse
 import random
+import shutil
 import multiprocessing
 
 import numpy as np
 import objaverse
 from tqdm import tqdm
 import trimesh 
+from pygltflib import GLTF2
 
 
 def load_existing_json(file_path):
@@ -85,7 +87,38 @@ def process_object(obj_details):
     }
 
 
-def update_json(objaverse_dict, objaverse_base_path, json_path, num_workers=32):
+def update_glb_json(objaverse_dict, objaverse_base_path, json_path, filter_skins):
+    existing_data = load_existing_json(json_path)
+    existing_map = {item["objaverse_id"] for item in existing_data}
+
+    skinned = 0
+    for objaverse_id, glb_path in tqdm(objaverse_dict.items(), desc="Copying cached files."):
+        if objaverse_id in existing_map:
+            continue
+
+        # 1817 skinned meshes out of 42495 total
+        if filter_skins:
+            gltf = GLTF2().load(glb_path)
+            if gltf.skins:
+                del objaverse_dict[objaverse_id]
+                skinned += 1
+                continue
+
+        github_id = glb_path.split('/')[-2]
+        dst_dir = os.path.join(objaverse_base_path, "glbs", github_id)
+        os.makedirs(dst_dir, exist_ok=True)
+        shutil.copyfile(glb_path, os.path.join(dst_dir, f"{objaverse_id}.glb"))
+
+        existing_data.append({
+            "objaverse_id": objaverse_id,
+            "github_id": github_id,
+        })
+
+    save_to_json(json_path, existing_data)
+    print(f"Skipped a total of {skinned} skinned objects.")
+
+
+def update_obj_json(objaverse_dict, objaverse_base_path, json_path, num_workers=32):
     existing_data = load_existing_json(json_path)
     existing_map = {item["objaverse_id"] for item in existing_data}
 
@@ -117,14 +150,16 @@ def update_json(objaverse_dict, objaverse_base_path, json_path, num_workers=32):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download Objaverse objects and convert them to '.obj' format.")
-    parser.add_argument('--data_path', type=str, help="Path to folder in which the dataset will be saved.")
+    parser.add_argument('--data_path', type=str, help="Path to folder in which the dataset will be saved.", required=True)
     parser.add_argument('--num_objects', type=int, help="Number of objects to download. Deafault is the full list.", default=None)
     parser.add_argument('--num_workers', type=int, help="Number of download processes to instantiate.", default=32)
     parser.add_argument('--list_file', type=str, help="Path to a list of UIDs to download. Default is random UIDs.", default=None)
+    parser.add_argument('--filter_skins', type=bool, help="Whether to filter skinned objects. Default is False.", default=False)
     args = parser.parse_args()
 
     objaverse_base_path = os.path.join(args.data_path, "objaverse")
-    objaverse_model_json_path = os.path.join(objaverse_base_path, "objaverse_models.json")
+    glb_json_path = os.path.join(objaverse_base_path, "glb_list.json")
+    obj_json_path = os.path.join(objaverse_base_path, "obj_list.json")
     os.makedirs(objaverse_base_path, exist_ok=True)
 
     seed = 42
@@ -143,8 +178,10 @@ if __name__ == "__main__":
         num_objects = min(args.num_objects, len(uids))
         uids = random.sample(uids, num_objects)
 
-    objects_dict = objaverse.load_objects(uids=uids, download_processes=args.num_workers)
+    objaverse_dict = objaverse.load_objects(uids=uids, download_processes=args.num_workers)
 
-    print("Objects loaded, converting to '.obj'.")
-    update_json(objects_dict, objaverse_base_path, objaverse_model_json_path, num_workers=args.num_workers)
-    print(f"Objects saved to {objaverse_base_path}")
+    print(f"Objects loaded, copying '.glb' files to {objaverse_base_path}/glbs")
+    update_glb_json(objaverse_dict, objaverse_base_path, glb_json_path, args.filter_skins)
+    print("Converting '.glb' to '.obj'")
+    update_obj_json(objaverse_dict, objaverse_base_path, obj_json_path, num_workers=args.num_workers)
+    print(f"Saved '.obj' files to {objaverse_base_path}/objs")

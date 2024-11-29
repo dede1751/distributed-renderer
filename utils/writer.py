@@ -34,7 +34,7 @@ class TarWriter():
     def write(self, objaverse_id: str, data: Dict[str, Union[np.ndarray, List[np.ndarray], trimesh.PointCloud]]):
         K = data["intr"]
         for i in range(data["num_views"]):
-            image = data["colors"][i]
+            image = data["colors"][i][..., :3] # Convert images from RGBA to RGB (we don't care about alpha)
             depth = data["depth"][i]
             extr = data["extr"][i]
 

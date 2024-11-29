@@ -19,5 +19,5 @@ python utils/download.py --data_path <path/to/dataset> --num_objects 100 --num_w
 ## Downloading HDRIs
 
 ```bash
-blenderproc download haven --categories skies pure%20skies high%20contrast --resolution 1k hdri/high_contrast
+blenderproc download haven --categories skies pure%20skies high%20contrast midday --resolution 1k hdri/midday
 ```
