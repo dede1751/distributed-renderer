@@ -42,18 +42,13 @@ def normalize_obj(obj: bproc.types.MeshObject):
 class BlenderScene:
     """Keep track of all elements in the scene."""
 
-    def __init__(self, data_path: str, objects: Dict[str, str], writer: TarWriter, cfg: SimpleNamespace):
+    def __init__(self, data_path: str, writer: TarWriter, cfg: SimpleNamespace):
         self.cfg = cfg
         self.writer = writer
-        bproc.init()
-
-        # Initialize fixed components of the scene and load all objects
+        self.data_path = data_path
         self.load_hdri()
-        if cfg.load_glb:
-            self.load_glb(data_path, objects)
-        else:
-            self.load_obj(data_path, objects)
 
+        bproc.init()
         if cfg.generate_pcd:
             # Add uniformly distributed cameras on a sphere
             for i in range(cfg.pcd.num_views):
@@ -76,40 +71,32 @@ class BlenderScene:
             for file in files:
                 if file.endswith('.exr') or file.endswith('.hdr'):
                     self.hdri.append(os.path.join(root, file))
-
-
-    def load_obj(self, data_path, objects):
-        self.objects = {}
-
-        for obj in objects:
-            obj_path = os.path.join(data_path, "objs", obj["github_id"], obj["objaverse_id"], "model_scaled.obj")
+    
+    
+    def load_object(self, obj: Dict[str, str]) -> bproc.types.MeshObject:
+        if self.cfg.load_glb:
+            obj_path = os.path.join(
+                self.data_path, "objs", obj["github_id"], obj["objaverse_id"], "model_scaled.obj")
 
             # OBJs are assumed to be merged and normalized beforehand
             blender_objs = bproc.loader.load_obj(obj_path)
             if len(blender_objs) > 1:
                 logging.error(f"Loaded multiple objects at once from: {obj_path}")
-            loaded_obj = blender_objs[-1]
+            merged_obj = blender_objs[-1]
             
-            loaded_obj.set_shading_mode('auto')
-            loaded_obj.hide(True)
-            self.objects[obj["objaverse_id"]] = loaded_obj
-
-
-    def load_glb(self, data_path, objects):
-        self.objects = {}
-
-        for obj in objects:
-            obj_path = os.path.join(data_path, "glbs", obj["github_id"], f"{obj['objaverse_id']}.glb")
+            merged_obj.set_shading_mode('auto')
+        else:
+            obj_path = os.path.join(
+                self.data_path, "glbs", obj["github_id"], f"{obj['objaverse_id']}.glb")
             blender_objs = bproc.loader.load_obj(obj_path)
 
             # Merge meshes into a single object
             merged_obj = create_with_empty_mesh(obj['objaverse_id'])
             merged_obj.join_with_other_objects(blender_objs)
             normalize_obj(merged_obj)
-
-            merged_obj.hide(True)
-            merged_obj.set_shading_mode('auto')
-            self.objects[obj["objaverse_id"]] = merged_obj
+        
+        merged_obj.set_shading_mode('auto')
+        return merged_obj
 
 
     def set_random_intrinsics(self):
@@ -205,10 +192,10 @@ class BlenderScene:
         return points
 
 
-    def render_object(self, objaverse_id):
+    def render_object(self, object):
+        objaverse_id = object["objaverse_id"]
         logging.info(f"Started rendering Object {objaverse_id}.")
-        obj = self.objects[objaverse_id]
-        obj.hide(False)
+        obj = self.load_object(object)
 
         self.set_random_hdri()
         focal_length = self.set_random_intrinsics()
@@ -231,7 +218,7 @@ class BlenderScene:
         data["num_views"] = self.cfg.cam.num_views
 
         self.writer.write(objaverse_id, data)
-        obj.hide(True)
+        bproc.object.delete_multiple([obj], remove_all_offspring=True)
 
 
 def main():
@@ -282,11 +269,11 @@ def main():
 
     # Initialize all static scene components
     writer = TarWriter(args.output_dir, args.config, args.shard_idx)
-    scene = BlenderScene(args.data_path, objects, writer, cfg)
+    scene = BlenderScene(args.data_path, writer, cfg)
     logging.info(f"Finished setting up static scene.")
 
-    for objaverse_id in scene.objects.keys():
-        scene.render_object(objaverse_id)
+    for object in objects:
+        scene.render_object(object)
     logging.info(f"Finished rendering.")
 
 
