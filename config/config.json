@@ -1,5 +1,4 @@
 {
-    "load_glb": true,
     "num_samples": 50,
     "resolution": [600, 600],
     "hdri_path": "./hdri/midday",

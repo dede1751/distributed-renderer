@@ -1,8 +1,4 @@
 blenderproc
 numpy
-objaverse
-opencv-python
-pillow
 tqdm
-trimesh
-pygltflib
+objaverse

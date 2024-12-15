@@ -7,6 +7,9 @@ from typing import List, Tuple, Dict
 from types import SimpleNamespace
 import logging
 import random
+import threading
+import time
+import psutil
 
 import bpy
 import numpy as np
@@ -17,6 +20,35 @@ import sys
 sys.path.insert(0, os.path.abspath("./"))
 
 from utils.writer import TarWriter
+
+
+# Memory monitoring
+def log_memory_usage(memory_logger):
+    """Logs the current memory usage of the process."""
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    memory_logger.info(f"Memory Usage - RSS: {mem_info.rss / (1024 ** 2):.2f} MB, VMS: {mem_info.vms / (1024 ** 2):.2f} MB")
+
+
+def periodic_memory_logger(log_dir, shard_idx, interval=10):
+    memory_logger = logging.getLogger("memory_logger")
+    memory_logger.setLevel(logging.INFO)
+
+    # Create a file handler for the memory logger
+    memory_log_file = os.path.join(log_dir, f"mem_{shard_idx:06d}.log")
+    memory_file_handler = logging.FileHandler(memory_log_file)
+    memory_file_handler.setLevel(logging.INFO)
+
+    # Set a formatter for the memory logs
+    memory_formatter = logging.Formatter('%(asctime)s - %(message)s')
+    memory_file_handler.setFormatter(memory_formatter)
+
+    # Add the file handler to the memory logger
+    memory_logger.addHandler(memory_file_handler)
+
+    while True:
+        log_memory_usage(memory_logger)
+        time.sleep(interval)
 
 
 def normalize_obj(obj: bproc.types.MeshObject):
@@ -42,15 +74,15 @@ def normalize_obj(obj: bproc.types.MeshObject):
 class BlenderScene:
     """Keep track of all elements in the scene."""
 
-    def __init__(self, data_path: str, writer: TarWriter, cfg: SimpleNamespace):
+    def __init__(self, writer: TarWriter, cfg: SimpleNamespace):
         self.cfg = cfg
         self.writer = writer
-        self.data_path = data_path
-        self.load_hdri()
 
+        self.load_hdri()
         bproc.init()
+        
+        # Add uniformly distributed cameras on a sphere for pcd
         if cfg.generate_pcd:
-            # Add uniformly distributed cameras on a sphere
             for i in range(cfg.pcd.num_views):
                 location = bproc.sampler.sphere(center=[0, 0, 0], radius=cfg.pcd.cam_dist, mode='SURFACE')
                 rotation_matrix = bproc.camera.rotation_from_forward_vec(-location)
@@ -67,34 +99,21 @@ class BlenderScene:
     def load_hdri(self):
         self.hdri = []
 
-        for root, dirs, files in os.walk(self.cfg.hdri_path):
+        for root, _, files in os.walk(self.cfg.hdri_path):
             for file in files:
                 if file.endswith('.exr') or file.endswith('.hdr'):
                     self.hdri.append(os.path.join(root, file))
     
     
     def load_object(self, obj: Dict[str, str]) -> bproc.types.MeshObject:
-        if self.cfg.load_glb:
-            obj_path = os.path.join(
-                self.data_path, "objs", obj["github_id"], obj["objaverse_id"], "model_scaled.obj")
+        blender_objs = bproc.loader.load_obj(obj["glb_path"])
+        logging.info(f"Loading '.glb' from {obj['glb_path']}")
 
-            # OBJs are assumed to be merged and normalized beforehand
-            blender_objs = bproc.loader.load_obj(obj_path)
-            if len(blender_objs) > 1:
-                logging.error(f"Loaded multiple objects at once from: {obj_path}")
-            merged_obj = blender_objs[-1]
+        # Merge meshes into a single object
+        merged_obj = create_with_empty_mesh(obj['uid'])
+        merged_obj.join_with_other_objects(blender_objs)
+        normalize_obj(merged_obj)
             
-            merged_obj.set_shading_mode('auto')
-        else:
-            obj_path = os.path.join(
-                self.data_path, "glbs", obj["github_id"], f"{obj['objaverse_id']}.glb")
-            blender_objs = bproc.loader.load_obj(obj_path)
-
-            # Merge meshes into a single object
-            merged_obj = create_with_empty_mesh(obj['objaverse_id'])
-            merged_obj.join_with_other_objects(blender_objs)
-            normalize_obj(merged_obj)
-        
         merged_obj.set_shading_mode('auto')
         return merged_obj
 
@@ -102,8 +121,8 @@ class BlenderScene:
     def set_random_intrinsics(self):
         cfg = self.cfg.cam
 
-        focal_length = np.random.uniform(*self.cfg.cam.focal_range)
-        diff_focal = np.random.uniform(*self.cfg.cam.diff_focal_range) # [1-x,1+x]
+        focal_length = np.random.uniform(*cfg.focal_range)
+        diff_focal = np.random.uniform(*cfg.diff_focal_range) # [1-x,1+x]
 
         pixel_aspect_x = pixel_aspect_y = 1
         if diff_focal >= 1:
@@ -193,8 +212,8 @@ class BlenderScene:
 
 
     def render_object(self, object):
-        objaverse_id = object["objaverse_id"]
-        logging.info(f"Started rendering Object {objaverse_id}.")
+        uid = object["uid"]
+        logging.info(f"Started rendering Object: [CAT_ID: {object['cat_id']}, UID: {uid}]")
         obj = self.load_object(object)
 
         self.set_random_hdri()
@@ -202,13 +221,15 @@ class BlenderScene:
         self.set_random_extrinsics(focal_length)
 
         self.toggle_pcd_rendering(False)
+
+        logging.info(f"Scene initialized. Rendering views of Object: {uid}.")
         data = bproc.renderer.render()
-        logging.info(f"Finished rendering views of object: {objaverse_id}.")
+        logging.info(f"Finished rendering views of Object: {uid}.")
 
         if self.cfg.generate_pcd:
             self.toggle_pcd_rendering(True)
             pcd_data = bproc.renderer.render()
-            logging.info(f"Finished rendering pcd views of object: {objaverse_id}.")
+            logging.info(f"Finished rendering pcd views of Object: {uid}.")
             data["pcd"] = self.compute_pcd(pcd_data["depth"])
         else:
             data["pcd"] = np.array([])
@@ -217,18 +238,19 @@ class BlenderScene:
         data["extr"] = [bproc.camera.get_camera_pose(f) for f in range(self.cfg.cam.num_views)]
         data["num_views"] = self.cfg.cam.num_views
 
-        self.writer.write(objaverse_id, data)
+        self.writer.write(uid, data)
         bproc.object.delete_multiple([obj], remove_all_offspring=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Render a batch of Objaverse assets.")
     parser.add_argument("--config", type=str, help="Path to config file", default="config/config.json")
-    parser.add_argument("--data_path", type=str, help="Path to the Objaverse dataset.", required=True)
+    parser.add_argument("--json_path", type=str, help="Path to '.json' dataset.", required=True)
     parser.add_argument("--shard_idx", type=int, help="Index of the dataset shard.", required=True)
     parser.add_argument("--num_workers", type=int, help="Total number of workers to shard the dataset across.", required=True)
     parser.add_argument("--max_objects", type=int, help="Maximum objects to render.", default=None)
     parser.add_argument("--output_dir", type=str, help="Path to save the rendered models.", required=True)
+    parser.add_argument("--log_mem", action='store_true', help="Log Memory Usage.", default=False)
     parser.add_argument("--seed", type=int, help="Seed for data randomization. Default is random.", default=None)
     args = parser.parse_args()
 
@@ -238,13 +260,8 @@ def main():
 
     with open(args.config, "r") as f:
         cfg = json.load(f, object_hook=lambda x: SimpleNamespace(**x))
-    
-    if cfg.load_glb:
-        json_path = os.path.join(args.data_path, "glb_list.json")
-    else:
-        json_path = os.path.join(args.data_path, "obj_list.json")
 
-    with open(json_path, "r") as f:
+    with open(args.json_path, "r") as f:
         obj_list = json.load(f)
     
     # Each renderer writes to its own log file and output file
@@ -253,6 +270,13 @@ def main():
     logging.basicConfig(
         filename=os.path.join(log_dir, f"{args.shard_idx:06d}.log"),
         level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+    if args.log_mem:
+        threading.Thread(
+            target=periodic_memory_logger,
+            args=(log_dir, args.shard_idx),
+            daemon=True,
+        ).start()
 
     # Shard the dataset so the last shard is potentially smaller than the others.
     total_objects = len(obj_list)
@@ -269,7 +293,7 @@ def main():
 
     # Initialize all static scene components
     writer = TarWriter(args.output_dir, args.config, args.shard_idx)
-    scene = BlenderScene(args.data_path, writer, cfg)
+    scene = BlenderScene(writer, cfg)
     logging.info(f"Finished setting up static scene.")
 
     for object in objects:

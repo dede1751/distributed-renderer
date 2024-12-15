@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import numpy as np
 import cv2
 
@@ -58,7 +60,7 @@ def colmap_to_opencv_intrinsics(K):
     K[1, 2] -= 0.5
     return K
 
-def scale_intrinsics(K: np.ndarray, scale_factor: float, crop: (int, int)):
+def scale_intrinsics(K: np.ndarray, scale_factor: float, crop: Tuple[int, int]):
     """
     Scale camera intrinsics to account for the crop.
     """
