@@ -31,20 +31,25 @@ def generate_video(out_file, images, extrinsics, frames_per_image):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Make a video of the rendered images for a single object.")
-    parser.add_argument('--path', type=str, required=True, help="Path to the object's rendering outputs (final directory should be a UID).")
-    parser.add_argument('--out', type=str, required=True, help="Name of the output '.mp4' clip.")
+    parser = argparse.ArgumentParser(description="Make videos of the rendered images for a collection of objects.")
+    parser.add_argument('--in_dir', type=str, required=True, help="Path to uncompressed rendering outputs.")
+    parser.add_argument('--out_dir', type=str, default="videos", help="Output directory for the videos. Defaults to 'videos'.")
     parser.add_argument('--fpi', type=int, default=1, help="Number of frames to display individual views for.")
     parser.add_argument('--max_views', type=int, default=None, help="Maximum number of views to load.")
     args = parser.parse_args()
 
-    img_path = os.path.join(args.path, "images")
-    extr_path = os.path.join(args.path, "extr")
-    images = [np.array(Image.open(os.path.join(img_path, fname))) for fname in os.listdir(img_path)]
-    extrinsics = [np.load(os.path.join(extr_path, fname)) for fname in os.listdir(extr_path)]
+    os.makedirs(args.out_dir, exist_ok=True)
+    uids = os.listdir(args.in_dir)
+    for uid in uids:
+        img_path = os.path.join(args.in_dir, uid, "images")
+        extr_path = os.path.join(args.in_dir, uid, "extr")
+        images = [np.array(Image.open(os.path.join(img_path, fname))) for fname in os.listdir(img_path)]
+        extrinsics = [np.load(os.path.join(extr_path, fname)) for fname in os.listdir(extr_path)]
 
-    if args.max_views is not None:
-        images = images[:args.max_views]
-        extrinsics = extrinsics[:args.max_views]
+        if args.max_views is not None:
+            images = images[:args.max_views]
+            extrinsics = extrinsics[:args.max_views]
 
-    generate_video(args.out, images, extrinsics, args.fpi)
+        print(f"\n[+] Generating video for {uid} with {len(images)} views.")
+        out_file = os.path.join(args.out_dir, f"{uid}.mp4")
+        generate_video(out_file, images, extrinsics, args.fpi)
