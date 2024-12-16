@@ -1,5 +1,5 @@
 """
-Create a '.json' file for the ShapeNetCore-glb dataset, meant to be used with the renderer.
+Create a JSON file for the ShapeNetCore-glb dataset, meant to be used with the renderer.
 We expect the ShapeNetCore dataset to already be downloaded in the data_path folder.
 """
 
@@ -12,34 +12,14 @@ import argparse
 import random
 
 import numpy as np
-from tqdm import tqdm
 
-
-def collect_glb_files(root_folder):
-    glb_files_dict = {}
-
-    for dirname in tqdm(os.listdir(root_folder)):
-        dir = os.path.join(root_folder, dirname)
-        if os.path.isdir(dir):
-            for file in os.listdir(dir):
-                if file.endswith('.glb'):
-                    uid = os.path.splitext(file)[0]
-                    glb_files_dict[uid] = os.path.join(dir, file)
-                
-    return glb_files_dict
-
-
-def save_to_json(file_path, data):
-    directory = os.path.dirname(file_path)
-    os.makedirs(directory, exist_ok=True)
-    with open(file_path, 'w') as file:
-        json.dump(data, file, indent=4)
+from utils import collect_glb_files, save_to_json
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Setup '.json' list for ShapeNetCore objects (note that you need access to the gated dataset).")
+    parser = argparse.ArgumentParser(description="Setup JSON list for ShapeNetCore objects (note that you need access to the gated dataset).")
     parser.add_argument('--data_path', type=str, help="Absolute Path to folder in which the dataset is saved.", required=True)
-    parser.add_argument('--json_name', type=str, help="Name of the '.json' output list.", required=True)
+    parser.add_argument('--json_name', type=str, help="Name of the JSON output list.", required=True)
     parser.add_argument('--list_file', type=str, help="Path to a list of UIDs to use. Default is all ShapeNetCore objects.", default=None)
     parser.add_argument('--num_objects', type=int, help="Maximum number of objects to use. Deafault is the full list.", default=None)
     args = parser.parse_args()

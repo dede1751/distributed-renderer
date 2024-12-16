@@ -211,10 +211,9 @@ class BlenderScene:
         return points
 
 
-    def render_object(self, object):
-        uid = object["uid"]
-        logging.info(f"Started rendering Object: [CAT_ID: {object['cat_id']}, UID: {uid}]")
-        obj = self.load_object(object)
+    def render_object(self, obj):
+        uid = obj["uid"]
+        asset = self.load_object(obj)
 
         self.set_random_hdri()
         focal_length = self.set_random_intrinsics()
@@ -239,13 +238,13 @@ class BlenderScene:
         data["num_views"] = self.cfg.cam.num_views
 
         self.writer.write(uid, data)
-        bproc.object.delete_multiple([obj], remove_all_offspring=True)
+        bproc.object.delete_multiple([asset], remove_all_offspring=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Render a batch of Objaverse assets.")
     parser.add_argument("--config", type=str, help="Path to config file", default="config/config.json")
-    parser.add_argument("--json_path", type=str, help="Path to '.json' dataset.", required=True)
+    parser.add_argument("--json_path", type=str, help="Path to JSON dataset.", required=True)
     parser.add_argument("--shard_idx", type=int, help="Index of the dataset shard.", required=True)
     parser.add_argument("--num_workers", type=int, help="Total number of workers to shard the dataset across.", required=True)
     parser.add_argument("--max_objects", type=int, help="Maximum objects to render.", default=None)
@@ -296,8 +295,9 @@ def main():
     scene = BlenderScene(writer, cfg)
     logging.info(f"Finished setting up static scene.")
 
-    for object in objects:
-        scene.render_object(object)
+    for i, obj in enumerate(objects):
+        logging.info(f"Rendering object {i + 1}/{len(objects)} -- [CAT_ID: {obj['cat_id']}, UID: {obj['uid']}]")
+        scene.render_object(obj)
     logging.info(f"Finished rendering.")
 
 
