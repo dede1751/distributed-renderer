@@ -1,4 +1,7 @@
 blenderproc
+imageio-ffmpeg
+moviepy
 numpy
-tqdm
 objaverse
+pillow
+tqdm
