@@ -1,10 +1,16 @@
 #!/bin/bash
+#SBATCH --job-name=MergeZS
+#SBATCH --mem-per-cpu=4G
+#SBATCH --ntasks=1 --cpus-per-task=32
+#SBATCH --time=2:00:00
+#SBATCH --output=./slurm_logs/merge/zeroshape_%A.out
+#SBATCH --error=./slurm_logs/merge/zeroshape_%A.err
 
 BASE_DIR="/cluster/work/riner/users/asgobbi/datasets"
 SHARD_DIR="${BASE_DIR}/renders/zeroshape/shards"
 FINAL_TARBALL="${BASE_DIR}/zs_224.tar.gz"
 TEMP_DIR=$(mktemp -d)
-WORKERS=16
+WORKERS=32
 
 if [ ! -d ${SHARD_DIR} ]; then
     echo "Error: Shard directory does not exist: ${SHARD_DIR}"

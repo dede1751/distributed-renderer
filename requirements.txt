@@ -1,5 +1,4 @@
 blenderproc
-imageio-ffmpeg
 moviepy
 numpy
 objaverse
