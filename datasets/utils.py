@@ -1,6 +1,7 @@
 import argparse
 import os
 import json
+import tarfile
 
 from tqdm import tqdm
 
@@ -51,18 +52,50 @@ def deduplicate_json(src_file, tgt_file, out_file):
     print(f"Deduplication complete, removed {len(tgt_list) - len(tgt_dedup)} duplicates. Output written to {out_file}.")
 
 
+def resume_render(output_dir, old_file, new_file):
+    """
+    Generate a new JSON list to resume an incomplete rendering job.
+    """
+    # Collect all the UIDs that have been rendered so far, as well as the maximum shard index.
+    max_idx = 0
+    rendered_uids = {}
+    for shard_file in os.listdir(os.path.join(output_dir, "shards")):
+        shard_idx = int(shard_file.split("_")[1])
+        max_idx = max(max_idx, shard_idx)
+
+        with tarfile.open(shard_file, "r") as tar:
+            rendered = [member.name for member in tar.getmembers() if member.isdir()]
+            rendered_uids.update(rendered)
+    print(f"Found {len(rendered_uids)} rendered entries. Maximum shard index is {max_idx}.")
+    
+    # Remove rendered UIDs from the original list.
+    with open(old_file, "r") as old_f:
+        old_list = json.load(old_f)
+    new_list = [entry for entry in old_list if entry["uid"] not in rendered_uids]
+
+    save_to_json(new_file, new_list)
+    print(f"Generated resume list with {len(new_list)} entries. Output written to {new_file}.")
+
+
 if __name__ == """__main__""":
     parser = argparse.ArgumentParser(description="Utility tools for the renderer datasets.")
     subparsers = parser.add_subparsers(dest="command")
 
     dedup_parser = subparsers.add_parser("dedup", help="Deduplicate JSON files based on UID. Removes entries from the target file that are present in the source file.")
-    dedup_parser.add_argument("--src", required=True, help="Path the the JSON file to look for duplicates in.")
-    dedup_parser.add_argument("--tgt", required=True, help="Path the the JSON file to remove duplicates from.")
-    dedup_parser.add_argument("--out", required=True, help="Path for the output JSON file.")
+    dedup_parser.add_argument("--src", type=str, required=True, help="Path the JSON file to look for duplicates in.")
+    dedup_parser.add_argument("--tgt", type=str, required=True, help="Path the JSON file to remove duplicates from.")
+    dedup_parser.add_argument("--out", type=str, required=True, help="Path for output JSON file.")
+
+    resume_parser = subparsers.add_parser("resume", help="Generate a new JSON list to resume an incomplete rendering job.")
+    resume_parser.add_argument("--output_dir", type=str, required=True, help="Output directory of the incomplete job.")
+    resume_parser.add_argument("--old", type=str, required=True, help="Path the JSON list used for the original rendering job.")
+    resume_parser.add_argument("--new", type=str, required=True, help="Path for the new JSON list to resume the rendering job.")
 
     args = parser.parse_args()
 
     if args.command == "dedup":
         deduplicate_json(args.src, args.tgt, args.out)
+    elif args.command == "resume":
+        resume_render(args.output_dir, args.old, args.new)
     else:
         parser.print_help()

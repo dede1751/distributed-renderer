@@ -18,15 +18,14 @@ from utils import collect_glb_files, save_to_json
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Setup JSON list for ShapeNetCore objects (note that you need access to the gated dataset).")
-    parser.add_argument('--data_path', type=str, help="Absolute Path to folder in which the dataset is saved.", required=True)
-    parser.add_argument('--json_name', type=str, help="Name of the JSON output list.", required=True)
+    parser.add_argument('--data_path', type=str, help="Path to the folder in which the dataset is saved.", required=True)
     parser.add_argument('--list_file', type=str, help="Path to a list of UIDs to use. Default is all ShapeNetCore objects.", default=None)
+    parser.add_argument('--json_file', type=str, help="Path for the JSON output list.", required=True)
     parser.add_argument('--num_objects', type=int, help="Maximum number of objects to use. Deafault is the full list.", default=None)
     args = parser.parse_args()
 
     print(f"Fetching all '.glb' files from: {args.data_path}")
     data_path = os.path.abspath(args.data_path)
-    glb_json_path = os.path.join(data_path, f"{args.json_name}.json")
 
     seed = 42
     random.seed(seed)
@@ -53,7 +52,7 @@ if __name__ == "__main__":
         print(f"Selecting {num_objects} objects...")
         uids = random.sample(uids, num_objects)
 
-    print(f"Saving {len(uids)} objects to: {glb_json_path}")
+    print(f"Saving {len(uids)} objects to: {args.json_file}")
     uid_json = [
         {
             "uid": uid,
@@ -61,4 +60,4 @@ if __name__ == "__main__":
             "glb_path": path,
         } for uid, path in uids
     ]
-    save_to_json(glb_json_path, uid_json)
+    save_to_json(args.json_file, uid_json)

@@ -3,13 +3,10 @@ from blenderproc.python.types.MeshObjectUtility import create_with_empty_mesh
 
 import json
 import argparse
-from typing import List, Tuple, Dict
+from typing import Dict
 from types import SimpleNamespace
 import logging
 import random
-import threading
-import time
-import psutil
 
 import bpy
 import numpy as np
@@ -20,35 +17,6 @@ import sys
 sys.path.insert(0, os.path.abspath("./"))
 
 from utils.writer import TarWriter
-
-
-# Memory monitoring
-def log_memory_usage(memory_logger):
-    """Logs the current memory usage of the process."""
-    process = psutil.Process(os.getpid())
-    mem_info = process.memory_info()
-    memory_logger.info(f"Memory Usage - RSS: {mem_info.rss / (1024 ** 2):.2f} MB, VMS: {mem_info.vms / (1024 ** 2):.2f} MB")
-
-
-def periodic_memory_logger(log_dir, shard_idx, interval=10):
-    memory_logger = logging.getLogger("memory_logger")
-    memory_logger.setLevel(logging.INFO)
-
-    # Create a file handler for the memory logger
-    memory_log_file = os.path.join(log_dir, f"mem_{shard_idx:06d}.log")
-    memory_file_handler = logging.FileHandler(memory_log_file)
-    memory_file_handler.setLevel(logging.INFO)
-
-    # Set a formatter for the memory logs
-    memory_formatter = logging.Formatter('%(asctime)s - %(message)s')
-    memory_file_handler.setFormatter(memory_formatter)
-
-    # Add the file handler to the memory logger
-    memory_logger.addHandler(memory_file_handler)
-
-    while True:
-        log_memory_usage(memory_logger)
-        time.sleep(interval)
 
 
 def normalize_obj(obj: bproc.types.MeshObject):
@@ -244,12 +212,13 @@ class BlenderScene:
 def main():
     parser = argparse.ArgumentParser(description="Render a batch of Objaverse assets.")
     parser.add_argument("--config", type=str, help="Path to config file", default="config/config.json")
-    parser.add_argument("--json_path", type=str, help="Path to JSON dataset.", required=True)
+    parser.add_argument("--json_file", type=str, help="Path to JSON dataset.", required=True)
     parser.add_argument("--shard_idx", type=int, help="Index of the dataset shard.", required=True)
+    parser.add_argument("--shard_offset", type=int, help="Shard index offset to avoid overwriting previous runs.", default=0)
     parser.add_argument("--num_workers", type=int, help="Total number of workers to shard the dataset across.", required=True)
     parser.add_argument("--max_objects", type=int, help="Maximum objects to render.", default=None)
     parser.add_argument("--output_dir", type=str, help="Path to save the rendered models.", required=True)
-    parser.add_argument("--log_mem", action='store_true', help="Log Memory Usage.", default=False)
+    parser.add_argument("--log_resources", action='store_true', help="Log resource (CPU/Mem) usage.", default=False)
     parser.add_argument("--seed", type=int, help="Seed for data randomization. Default is random.", default=None)
     args = parser.parse_args()
 
@@ -260,22 +229,12 @@ def main():
     with open(args.config, "r") as f:
         cfg = json.load(f, object_hook=lambda x: SimpleNamespace(**x))
 
-    with open(args.json_path, "r") as f:
+    with open(args.json_file, "r") as f:
         obj_list = json.load(f)
     
-    # Each renderer writes to its own log file and output file
-    log_dir = os.path.join(args.output_dir, "logs")
-    os.makedirs(log_dir, exist_ok=True)
-    logging.basicConfig(
-        filename=os.path.join(log_dir, f"{args.shard_idx:06d}.log"),
-        level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-    if args.log_mem:
-        threading.Thread(
-            target=periodic_memory_logger,
-            args=(log_dir, args.shard_idx),
-            daemon=True,
-        ).start()
+    # Initialize writer handling logs and outputs.
+    writer_idx = args.shard_idx + args.shard_offset
+    writer = TarWriter(args.output_dir, args.config, writer_idx, args.log_resources)    
 
     # Shard the dataset so the last shard is potentially smaller than the others.
     total_objects = len(obj_list)
@@ -291,7 +250,6 @@ def main():
     logging.info(f"Started rendering {len(objects)} objects from index {start_idx}.")
 
     # Initialize all static scene components
-    writer = TarWriter(args.output_dir, args.config, args.shard_idx)
     scene = BlenderScene(writer, cfg)
     logging.info(f"Finished setting up static scene.")
 

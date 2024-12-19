@@ -5,21 +5,76 @@ import tarfile
 import os
 import shutil
 import logging
+import threading
 from typing import Dict, List, Union
 
-import numpy as np
 import cv2
+import numpy as np
+import psutil
 
 from utils.postprocess import process_view
 
+
+def log_resource_usage(resource_logger, interval):
+    process = psutil.Process(os.getpid())
+    cpu_percent = process.cpu_percent(interval=interval)
+    cpu_times = process.cpu_times()
+    mem_info = process.memory_info()
+
+    resource_logger.info(
+        f"CPU Usage - Percent: {cpu_percent:.2f}%, "
+        f"User Time: {cpu_times.user:.2f}s, System Time: {cpu_times.system:.2f}s"
+    )
+    resource_logger.info(
+        f"Memory Usage - RSS: {mem_info.rss / (1024 ** 2):.2f} MB, "
+        f"VMS: {mem_info.vms / (1024 ** 2):.2f} MB\n"
+    )
+
+
+def periodic_resource_logger(log_file, interval):
+    logger = logging.getLogger("resource_logger")
+    file_handler = logging.FileHandler(log_file)
+    formatter = logging.Formatter("%(asctime)s - %(message)s")
+
+    logger.setLevel(logging.INFO)
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.propagate = False # Avoid polluting main logs
+
+    while True:
+        log_resource_usage(logger, interval)
+
+
 class TarWriter():
     """
-    Save data to a tarball to circumvent cluster file limits.
+    Handles all rendering I/O operations, including saving outputs and logging.
+    Saves data to a tarball to circumvent cluster file limits.
     Each shard is processed independently and has its own 'output/tmp/xxxxxx' directory, where the
     data is temporarily saved before being added to the shard tarball.
     """
-    def __init__(self, output_dir: str, config_path: str, idx: int):
+    def __init__(self, output_dir: str, config_path: str, idx: int, log_resources: bool):
         self.idx = idx
+
+        # Setup render logging
+        log_dir = os.path.join(output_dir, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+
+        log_file = os.path.join(log_dir, f"{idx:06d}.log")
+        format = "%(asctime)s - %(levelname)s - %(message)s"
+        logging.basicConfig(filename=log_file, level=logging.INFO, format=format)
+
+        # Setup resource usage logging
+        if log_resources:
+            res_log_dir = os.path.join(output_dir, "resource_logs")
+            os.makedirs(res_log_dir, exist_ok=True)
+
+            res_log_file = os.path.join(res_log_dir, f"{idx:06d}.log")
+            threading.Thread(
+                target=periodic_resource_logger,
+                args=(res_log_file, 60),
+                daemon=True,
+            ).start()
 
         # Wipe and create new 'tmp' directory, with subdirectories for each data field
         self.tmp_dir = os.path.join(output_dir, "tmp", f"{idx:06d}")

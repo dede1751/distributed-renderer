@@ -41,15 +41,14 @@ def cache_glb_files(root_folder, objaverse_dict):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download Objaverse objects and setup a JSON list.")
     parser.add_argument('--data_path', type=str, help="Path to folder in which the dataset will be saved.", required=True)
-    parser.add_argument('--json_name', type=str, help="Name of the JSON output list.", required=True)
-    parser.add_argument('--list_file', type=str, help="Path to a list of UIDs to download. Default is random UIDs.", default=None)
+    parser.add_argument('--list_file', type=str, help="Path to a list of UIDs to download.  Default is all Objaverse objects.", default=None)
+    parser.add_argument('--json_file', type=str, help="Path for the JSON output list.", required=True)
     parser.add_argument('--num_objects', type=int, help="Number of objects to download. Deafault is the full list.", default=None)
     parser.add_argument('--num_workers', type=int, help="Number of download processes to instantiate.", default=32)
     args = parser.parse_args()
 
     print(f"Fetching all '.glb' files from: {args.data_path}")
     data_path = os.path.abspath(args.data_path)
-    glb_json_path = os.path.join(data_path, f"{args.json_name}.json")
     os.makedirs(data_path, exist_ok=True)
 
     seed = 42
@@ -74,9 +73,7 @@ if __name__ == "__main__":
         print(f"Selecting {num_objects} objects...")
         uid_list = random.sample(uid_list, num_objects)
     
-
     dl_uids = [uid for uid in uid_list if uid not in cached_uids]
-
     if (len(dl_uids) > 0):
         print(f"Fetching {len(dl_uids)} new objects...")
         objaverse_dict = objaverse.load_objects(uids=dl_uids, download_processes=args.num_workers)
@@ -89,7 +86,7 @@ if __name__ == "__main__":
     else:
         print(f"All files are already cached!")
 
-    print(f"Saving {len(cached_uids)} objects to: {glb_json_path}")
+    print(f"Saving {len(cached_uids)} objects to: {args.json_file}")
     uid_json = [
         {
             "uid": uid,
@@ -97,4 +94,4 @@ if __name__ == "__main__":
             "glb_path": path,
         } for uid, path in cached_uids.items()
     ]
-    save_to_json(glb_json_path, uid_json)
+    save_to_json(args.json_file, uid_json)
