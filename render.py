@@ -213,14 +213,18 @@ def main():
     parser = argparse.ArgumentParser(description="Render a batch of Objaverse assets.")
     parser.add_argument("--config", type=str, help="Path to config file", default="config/config.json")
     parser.add_argument("--json_file", type=str, help="Path to JSON dataset.", required=True)
-    parser.add_argument("--shard_idx", type=int, help="Index of the dataset shard.", required=True)
-    parser.add_argument("--shard_offset", type=int, help="Shard index offset to avoid overwriting previous runs.", default=0)
-    parser.add_argument("--num_workers", type=int, help="Total number of workers to shard the dataset across.", required=True)
-    parser.add_argument("--max_objects", type=int, help="Maximum objects to render.", default=None)
+    parser.add_argument("--start_idx", type=int, help="Index of the first object to render.", required=True)
+    parser.add_argument("--end_idx", type=int, help="Index of the last object to render (excluded).", required=True)
     parser.add_argument("--output_dir", type=str, help="Path to save the rendered models.", required=True)
     parser.add_argument("--log_resources", action='store_true', help="Log resource (CPU/Mem) usage.", default=False)
     parser.add_argument("--seed", type=int, help="Seed for data randomization. Default is random.", default=None)
-    args = parser.parse_args()
+
+    # Additional arguments for nice logging
+    parser.add_argument("--shard_idx", type=int, help="Index of the dataset shard.", required=True)
+    parser.add_argument("--rerun_idx", type=int, help="Number of times this shard has had this script called.", required=True)
+    parser.add_argument("--tot_completed", type=int, help="Total number of objects already rendered.", required=True)
+    parser.add_argument("--tot_objects", type=int, help="Total number of objects being rendered.", required=True)
+    args, _ = parser.parse_known_args()
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -233,28 +237,22 @@ def main():
         obj_list = json.load(f)
     
     # Initialize writer handling logs and outputs.
-    writer_idx = args.shard_idx + args.shard_offset
-    writer = TarWriter(args.output_dir, args.config, writer_idx, args.log_resources)    
+    writer = TarWriter(args.output_dir, args.config, args.shard_idx, args.log_resources)    
 
-    # Shard the dataset so the last shard is potentially smaller than the others.
-    total_objects = len(obj_list)
-    obj_per_shard = total_objects // args.num_workers
-    if total_objects % args.num_workers != 0:
-        obj_per_shard += 1
-    if args.max_objects is not None:
-        obj_per_shard = min(args.max_objects, obj_per_shard)
-
-    start_idx = obj_per_shard * args.shard_idx
-    end_idx = min(start_idx + obj_per_shard, total_objects)
-    objects = obj_list[start_idx: end_idx]
-    logging.info(f"Started rendering {len(objects)} objects from index {start_idx}.")
+    # Obtain the batch of objects to render
+    objects = obj_list[args.start_idx:args.end_idx]
+    logging.info(
+        f"[RERUN {args.rerun_idx}] "
+        f"Started rendering {len(objects)} objects from index {args.start_idx}.")
 
     # Initialize all static scene components
     scene = BlenderScene(writer, cfg)
     logging.info(f"Finished setting up static scene.")
 
     for i, obj in enumerate(objects):
-        logging.info(f"Rendering object {i + 1}/{len(objects)} -- [CAT_ID: {obj['cat_id']}, UID: {obj['uid']}]")
+        logging.info(
+            f"Rendering object {args.tot_completed + i + 1}/{args.tot_objects} "
+            f"-- [CAT_ID: {obj['cat_id']}, UID: {obj['uid']}]")
         scene.render_object(obj)
     logging.info(f"Finished rendering.")
 

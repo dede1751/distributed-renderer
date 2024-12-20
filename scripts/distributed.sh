@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=Google
-#SBATCH --mem-per-cpu=6G
+#SBATCH --mem-per-cpu=2G
 #SBATCH --ntasks=1 --cpus-per-task=8
 #SBATCH --array=0-99
 #SBATCH --time=48:00:00
@@ -15,12 +15,14 @@ TOTAL_JOBS=100
 #####################################################
 
 echo "Running job $SLURM_ARRAY_TASK_ID of $TOTAL_JOBS."
-blenderproc run render.py \
+python runner.py \
     --json_file $JSON_FILE \
     --shard_idx $SLURM_ARRAY_TASK_ID \
     --num_workers $TOTAL_JOBS \
-    --log_resources \
-    --output_dir $OUTPUT_DIR
-#    --config config/config.json \
+    --obj_per_rerun 100 \
+    --output_dir $OUTPUT_DIR \
+    --log_resources
+#    --shard_offset 0 \
 #    --max_objects 10 \
 #    --seed 42 \
+#    --config config/config.json \

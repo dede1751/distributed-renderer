@@ -42,6 +42,7 @@ def periodic_resource_logger(log_file, interval):
     logger.addHandler(file_handler)
     logger.propagate = False # Avoid polluting main logs
 
+    logger.info(f"Started logging resources for PID: {os.getpid()}")
     while True:
         log_resource_usage(logger, interval)
 
@@ -72,7 +73,7 @@ class TarWriter():
             res_log_file = os.path.join(res_log_dir, f"{idx:06d}.log")
             threading.Thread(
                 target=periodic_resource_logger,
-                args=(res_log_file, 60),
+                args=(res_log_file, 10),
                 daemon=True,
             ).start()
 
