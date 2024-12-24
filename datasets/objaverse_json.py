@@ -15,7 +15,7 @@ import numpy as np
 import objaverse
 from tqdm import tqdm
 
-from utils import collect_glb_files, save_to_json
+from datasets.utils import collect_glb_files, save_to_json
 
 
 # Cache to a temporary directory due to cluster limits.

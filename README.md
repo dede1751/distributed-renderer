@@ -33,3 +33,11 @@ python datasets/shapenet_json.py --data_path <path/to/shapenetcore-glb> --list_f
 ```bash
 blenderproc download haven --categories skies high%20contrast midday --resolution 1k hdri/midday
 ```
+
+## Rendering
+
+This renderer is developed for the SLURM Workload Manager. Modify ```scripts/distributed.sh``` and simply run:
+
+```bash
+sbatch < scripts/distributed.sh
+```

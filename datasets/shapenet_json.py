@@ -7,13 +7,12 @@ import os # Set env vars before importing libraries
 os.environ["OPENBLAS_NUM_THREADS"] = "1" 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
-import json
 import argparse
 import random
 
 import numpy as np
 
-from utils import collect_glb_files, save_to_json
+from datasets.utils import collect_glb_files, save_to_json
 
 
 if __name__ == "__main__":

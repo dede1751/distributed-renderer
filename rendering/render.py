@@ -16,7 +16,7 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath("./"))
 
-from utils.writer import TarWriter
+from rendering.writer import TarWriter
 
 
 def normalize_obj(obj: bproc.types.MeshObject):
@@ -205,7 +205,10 @@ class BlenderScene:
         data["extr"] = [bproc.camera.get_camera_pose(f) for f in range(self.cfg.cam.num_views)]
         data["num_views"] = self.cfg.cam.num_views
 
+        logging.info(f"Writing data of Object: {uid}.")
         self.writer.write(uid, data)
+
+        logging.info(f"Finished writing data. Deleting Object: {uid}.")
         bproc.object.delete_multiple([asset], remove_all_offspring=True)
 
 

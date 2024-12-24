@@ -6,7 +6,8 @@ python runner.py \
     --shard_offset 2 \
     --num_workers 1 \
     --max_objects 3 \
-    --obj_per_rerun 1 \
+    --obj_per_rerun 2 \
     --output_dir ./outputs \
     --log_resources \
-    --seed 42
+    --seed 42 \
+    --config config/dbg.json 

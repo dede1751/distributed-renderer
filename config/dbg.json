@@ -1,0 +1,22 @@
+{
+    "num_samples": 50,
+    "resolution": [600, 600],
+    "hdri_path": "./hdri/midday",
+    "cam": {
+        "num_views": 1,
+        "focal_base": 35,
+        "focal_range": [30, 70],
+        "diff_focal_range": [0.9, 1.1],
+        "dist_base": 3.0,
+        "dist_delta": 0.3,
+        "elev_range": [-20, 65],
+        "max_rot": 15,
+        "poi_dist_max": 0.1
+    },
+    "generate_pcd": false,
+    "pcd": {
+        "num_views": 16,
+        "cam_dist": 3,
+        "num_points": 50000
+    }
+}

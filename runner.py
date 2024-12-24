@@ -60,5 +60,5 @@ if __name__ == "__main__":
             "--tot_completed", str(rerun_start - shard_start),
             "--tot_objects", str(shard_end - shard_start),
         ]
-        cmd = ["blenderproc run render.py"] + cli_args + rerun_args
+        cmd = ["blenderproc run rendering/render.py"] + cli_args + rerun_args
         subprocess.run(" ".join(cmd), shell=True)

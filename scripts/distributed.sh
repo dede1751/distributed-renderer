@@ -22,7 +22,7 @@ python runner.py \
     --obj_per_rerun 100 \
     --output_dir $OUTPUT_DIR \
     --log_resources
-#    --shard_offset 0 \
+#    --shard_offset 100 \
 #    --max_objects 10 \
 #    --seed 42 \
 #    --config config/config.json \

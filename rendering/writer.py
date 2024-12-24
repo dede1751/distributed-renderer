@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 import psutil
 
-from utils.postprocess import process_view
+from rendering.postprocess import process_view
 
 
 def log_resource_usage(resource_logger, interval):
